@@ -24,8 +24,11 @@
 #include "libavutil/avstring.h"
 #include "internal.h"
 #include "libavutil/random_seed.h"
-#include "libavutil/md5.h"
 #include "urldecode.h"
+#include <openssl/evp.h>
+
+#define HASHLEN 16
+#define HASHHEXLEN 32
 
 static void handle_basic_params(HTTPAuthState *state, const char *key,
                                 int key_len, char **dest, int *dest_len)
@@ -118,20 +121,6 @@ void ff_http_auth_handle_header(HTTPAuthState *state, const char *key,
 }
 
 
-static void update_md5_strings(struct AVMD5 *md5ctx, ...)
-{
-    va_list vl;
-
-    va_start(vl, md5ctx);
-    while (1) {
-        const char* str = va_arg(vl, const char*);
-        if (!str)
-            break;
-        av_md5_update(md5ctx, str, strlen(str));
-    }
-    va_end(vl);
-}
-
 /* Generate a digest reply, according to RFC 2617. */
 static char *make_digest_auth(HTTPAuthState *state, const char *username,
                               const char *password, const char *uri,
@@ -143,10 +132,12 @@ static char *make_digest_auth(HTTPAuthState *state, const char *username,
     char cnonce[17];
     char nc[9];
     int i;
-    char A1hash[33], A2hash[33], response[33];
-    struct AVMD5 *md5ctx;
-    uint8_t hash[16];
+    char A1hash[EVP_MAX_MD_SIZE+1], md_value[EVP_MAX_MD_SIZE],HA2[EVP_MAX_MD_SIZE],A2hash[EVP_MAX_MD_SIZE+1], response[EVP_MAX_MD_SIZE+1];
     char *authstr;
+    const EVP_MD *md=NULL;
+    unsigned int iBinLen = 0;
+    unsigned int iHexLen = 0;
+    unsigned int    digestlength = 0;
 
     digest->nc++;
     snprintf(nc, sizeof(nc), "%08x", digest->nc);
@@ -156,40 +147,82 @@ static char *make_digest_auth(HTTPAuthState *state, const char *username,
         cnonce_buf[i] = av_get_random_seed();
     ff_data_to_hex(cnonce, (const uint8_t*) cnonce_buf, sizeof(cnonce_buf), 1);
 
-    md5ctx = av_md5_alloc();
+    EVP_MD_CTX *md5ctx = NULL;
+    md5ctx = EVP_MD_CTX_new();
     if (!md5ctx)
         return NULL;
 
-    av_md5_init(md5ctx);
-    update_md5_strings(md5ctx, username, ":", state->realm, ":", password, NULL);
-    av_md5_final(md5ctx, hash);
-    ff_data_to_hex(A1hash, hash, 16, 1);
+    if(strcmp(digest->algorithm, "md5-sess") == 0 || strcmp(digest->algorithm, "MD5") == 0)
+    {
+        iBinLen = HASHLEN;
+        iHexLen = HASHHEXLEN;
+        md = EVP_md5();
+    }
+    else if(strcmp(digest->algorithm, "SHA-256") == 0 || strcmp(digest->algorithm, "SHA256") == 0)
+    {
+        iBinLen = HASHHEXLEN;
+        iHexLen = EVP_MAX_MD_SIZE;
+        md = EVP_sha256();
+    }
+    if (md == NULL)
+        return NULL;
 
-    if (!strcmp(digest->algorithm, "") || !strcmp(digest->algorithm, "MD5")) {
-    } else if (!strcmp(digest->algorithm, "MD5-sess")) {
-        av_md5_init(md5ctx);
-        update_md5_strings(md5ctx, A1hash, ":", digest->nonce, ":", cnonce, NULL);
-        av_md5_final(md5ctx, hash);
-        ff_data_to_hex(A1hash, hash, 16, 1);
+    EVP_MD_CTX_init(md5ctx);
+
+    EVP_DigestInit_ex(md5ctx, md, NULL);
+
+    EVP_DigestUpdate(md5ctx, (unsigned char*)username, strlen(username));
+    EVP_DigestUpdate(md5ctx, (unsigned char*)":", 1);
+    EVP_DigestUpdate(md5ctx, (unsigned char*)state->realm, strlen(state->realm));
+    EVP_DigestUpdate(md5ctx, (unsigned char*)":", 1);
+    EVP_DigestUpdate(md5ctx, (unsigned char*)password, strlen(password));
+    EVP_DigestFinal(md5ctx, (unsigned char*)md_value, &digestlength);
+    ff_data_to_hex(A1hash, md_value, sizeof(md_value), 1);
+    if(!strcmp(digest->algorithm, "MD5-sess")) {
+        EVP_DigestInit_ex(md5ctx, md, NULL);
+        EVP_DigestUpdate(md5ctx, (unsigned char*)A1hash, iBinLen);
+        EVP_DigestUpdate(md5ctx, (unsigned char*)":", 1);
+        EVP_DigestUpdate(md5ctx, (unsigned char*)digest->nonce, strlen(digest->nonce));
+        EVP_DigestUpdate(md5ctx, (unsigned char*)":", 1);
+        EVP_DigestUpdate(md5ctx, (unsigned char*)cnonce, strlen(cnonce));
+        EVP_DigestFinal(md5ctx, (unsigned char*)md_value, &digestlength);
+        ff_data_to_hex(A1hash, md_value, sizeof(md_value), 1);
     } else {
         /* Unsupported algorithm */
         av_free(md5ctx);
         return NULL;
     }
 
-    av_md5_init(md5ctx);
-    update_md5_strings(md5ctx, method, ":", uri, NULL);
-    av_md5_final(md5ctx, hash);
-    ff_data_to_hex(A2hash, hash, 16, 1);
+    EVP_MD_CTX_init(md5ctx);
+    EVP_DigestInit_ex(md5ctx, md, NULL);
+    EVP_DigestInit_ex(md5ctx, md, NULL);
+    EVP_DigestUpdate(md5ctx, (unsigned char*)method, strlen(method));
+    EVP_DigestUpdate(md5ctx, (unsigned char*)":", 1);
+    EVP_DigestUpdate(md5ctx, (unsigned char*)uri, strlen(uri));
+    if (strcmp(digest->qop, "auth-int") == 0) {
+        EVP_DigestUpdate(md5ctx, (unsigned char*)":", 1);
+    };
+    
+    EVP_DigestFinal(md5ctx, HA2, &digestlength);
+    ff_data_to_hex(A2hash, HA2, sizeof(HA2), 1);
 
-    av_md5_init(md5ctx);
-    update_md5_strings(md5ctx, A1hash, ":", digest->nonce, NULL);
+    EVP_DigestInit_ex(md5ctx, md, NULL);
+    EVP_DigestUpdate(md5ctx, (unsigned char*)A1hash, sizeof(A1hash));
+    EVP_DigestUpdate(md5ctx, (unsigned char*)":", 1);
+    EVP_DigestUpdate(md5ctx, (unsigned char*)digest->nonce, strlen(digest->nonce));
+    EVP_DigestUpdate(md5ctx, (unsigned char*)":", 1);
     if (!strcmp(digest->qop, "auth") || !strcmp(digest->qop, "auth-int")) {
-        update_md5_strings(md5ctx, ":", nc, ":", cnonce, ":", digest->qop, NULL);
+        EVP_DigestUpdate(md5ctx, (unsigned char*)nc, strlen(nc));
+        EVP_DigestUpdate(md5ctx, (unsigned char*)":", 1);
+        EVP_DigestUpdate(md5ctx, (unsigned char*)cnonce, strlen(cnonce));
+        EVP_DigestUpdate(md5ctx, (unsigned char*)":", 1);
+        EVP_DigestUpdate(md5ctx, (unsigned char*)digest->qop, strlen(digest->qop));
+        EVP_DigestUpdate(md5ctx, (unsigned char*)":", 1);
     }
-    update_md5_strings(md5ctx, ":", A2hash, NULL);
-    av_md5_final(md5ctx, hash);
-    ff_data_to_hex(response, hash, 16, 1);
+    EVP_DigestUpdate(md5ctx, (unsigned char*)A2hash, iHexLen);
+    unsigned int    digestRespHash = 0;
+    EVP_DigestFinal(md5ctx, (unsigned char*)md_value, &digestRespHash);
+    ff_data_to_hex(response, md_value, sizeof(md_value), 1);
 
     av_free(md5ctx);
 
