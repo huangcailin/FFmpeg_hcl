@@ -18,8 +18,7 @@
  * License along with FFmpeg; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
-#include <string>
-#include <vector>
+
 #include "avformat.h"
 #include "internal.h"
 #include "network.h"
@@ -249,40 +248,6 @@ static BIO_METHOD url_bio_method = {
 };
 #endif
 
-unsigned int split(std::vector<std::string> &output,
-    const std::string s, const char* delimiter, bool wantempty,
-    unsigned int maxSegments)
-{
-    std::string::size_type left = 0;
-    unsigned int delimiter_len = strlen(delimiter);
-    unsigned int i;
-    for (i = 1; i < maxSegments; i++)
-    {
-        std::string::size_type right = s.find_first_of(delimiter, left);
-        if (right == std::string::npos)
-        {
-            break;
-        }
-        if (right == left)
-        {
-            //empty string
-            if (wantempty)
-                output.push_back("");
-        }
-        else if ((right - left) > 0)
-        {
-            output.push_back(s.substr(left, right - left));
-        }
-        left = right + delimiter_len;
-    }
-    if (left <= s.size())
-    {
-        if (left != s.size() || wantempty)
-            output.push_back(s.substr(left));
-    }
-    return output.size();
-}
-
 static int certVerifyCb(int ok, X509_STORE_CTX *ctx)
 {
     int error_code = X509_STORE_CTX_get_error(ctx);
@@ -331,12 +296,20 @@ static int tls_open(URLContext *h, const char *uri, int flags, AVDictionary **op
     }
     SSL_CTX_set_options(p->ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
     if (c->ca_file) {
-        std::vector<string> vecNodePath;
-        split(vecNodePath, c->ca_file, ';',false,INT_MAX);
-        for(auto &file:vecNodePath)
+        char* pPos = c->ca_file;
+        char* cert_file = c->ca_file;
+        while(1)
         {
-            if (!SSL_CTX_load_verify_locations(p->ctx, file, NULL))
+            pPos++;
+            if(pPos == 0)
+                break;
+            if(pPos != ';')
+                continue;
+            pPos=0;
+            if (!SSL_CTX_load_verify_locations(p->ctx, cert_file, NULL))
                 av_log(h, AV_LOG_ERROR, "SSL_CTX_load_verify_locations %s\n", ERR_error_string(ERR_get_error(), NULL));
+            pPos=pPos+1;
+            cert_file = pPos;
         }
     }
     if (c->cert_file && !SSL_CTX_use_certificate_chain_file(p->ctx, c->cert_file)) {
