@@ -249,6 +249,29 @@ static BIO_METHOD url_bio_method = {
 };
 #endif
 
+static int certVerifyCb(int ok, X509_STORE_CTX *ctx)
+{
+    int error_code = X509_STORE_CTX_get_error(ctx);
+    if (!ok)
+    {
+        switch (error_code)
+        {
+        case X509_V_ERR_CERT_REVOKED:
+        case X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY:
+        case X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE:
+        case X509_V_ERR_CERT_SIGNATURE_FAILURE:
+            ok = 0;
+            break;
+        case X509_V_ERR_UNABLE_TO_GET_CRL:
+            ok = 1;
+            break;
+        default:
+            break;
+        }
+    }
+    return ok;
+}
+
 static int tls_open(URLContext *h, const char *uri, int flags, AVDictionary **options)
 {
     TLSContext *p = h->priv_data;
@@ -274,8 +297,21 @@ static int tls_open(URLContext *h, const char *uri, int flags, AVDictionary **op
     }
     SSL_CTX_set_options(p->ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
     if (c->ca_file) {
-        if (!SSL_CTX_load_verify_locations(p->ctx, c->ca_file, NULL))
-            av_log(h, AV_LOG_ERROR, "SSL_CTX_load_verify_locations %s\n", ERR_error_string(ERR_get_error(), NULL));
+        char* pPos = c->ca_file;
+        char* cert_file = c->ca_file;
+        while(1)
+        {
+            pPos++;
+            if(pPos == 0)
+                break;
+            if(pPos != ';')
+                continue;
+            pPos=0;
+            if (!SSL_CTX_load_verify_locations(p->ctx, cert_file, NULL))
+                av_log(h, AV_LOG_ERROR, "SSL_CTX_load_verify_locations %s\n", ERR_error_string(ERR_get_error(), NULL));
+            pPos=pPos+1;
+            cert_file = pPos;
+        }
     }
     if (c->cert_file && !SSL_CTX_use_certificate_chain_file(p->ctx, c->cert_file)) {
         av_log(h, AV_LOG_ERROR, "Unable to load cert file %s: %s\n",
@@ -292,7 +328,7 @@ static int tls_open(URLContext *h, const char *uri, int flags, AVDictionary **op
     // Note, this doesn't check that the peer certificate actually matches
     // the requested hostname.
     if (c->verify)
-        SSL_CTX_set_verify(p->ctx, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+        SSL_CTX_set_verify(p->ctx, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, certVerifyCb);
     p->ssl = SSL_new(p->ctx);
     if (!p->ssl) {
         av_log(h, AV_LOG_ERROR, "%s\n", ERR_error_string(ERR_get_error(), NULL));
