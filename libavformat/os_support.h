@@ -28,10 +28,10 @@
  */
 
 #include "config.h"
-
 #include <sys/stat.h>
 
 #ifdef _WIN32
+#include "winerror.h"
 #if HAVE_DIRECT_H
 #include <direct.h>
 #endif
