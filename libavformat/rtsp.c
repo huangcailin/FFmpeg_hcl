@@ -50,6 +50,12 @@
 #include "url.h"
 #include "rtpenc.h"
 #include "mpegts.h"
+#include "tls.h"
+
+typedef struct TLSContext {
+    const AVClass *class;
+    TLSShared tls_shared;
+} TLSContext;
 
 /* Default timeout values for read packet in seconds  */
 #define READ_PACKET_TIMEOUT_S 10
@@ -97,6 +103,11 @@ const AVOption ff_rtsp_options[] = {
     { "timeout", "set timeout (in microseconds) of socket I/O operations", OFFSET(stimeout), AV_OPT_TYPE_INT64, {.i64 = 0}, INT_MIN, INT64_MAX, DEC },
     COMMON_OPTS(),
     { "user_agent", "override User-Agent header", OFFSET(user_agent), AV_OPT_TYPE_STRING, {.str = LIBAVFORMAT_IDENT}, 0, 0, DEC },
+    { "ca_file", "Certificate Authority database file", OFFSET(ca_file), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC },
+    { "cafile", "Certificate Authority database file", OFFSET(ca_file), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC },
+	{ "tls_verify", "Verify the peer certificate", OFFSET(verify), AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1, DEC|ENC },
+	{ "cert_file", "Certificate file", OFFSET(cert_file), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC },
+    { "key_file", "Private key file", OFFSET(key_file), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC },
     { NULL },
 };
 
@@ -1889,10 +1900,37 @@ redirect:
         ff_url_join(tcpname, sizeof(tcpname), lower_rtsp_proto, NULL,
                     host, port,
                     "?timeout=%"PRId64, rt->stimeout);
-        if ((ret = ffurl_open_whitelist(&rt->rtsp_hd, tcpname, AVIO_FLAG_READ_WRITE,
-                       &s->interrupt_callback, NULL, s->protocol_whitelist, s->protocol_blacklist, NULL)) < 0) {
-            err = ret;
-            goto fail;
+        if(!strcmp(lower_rtsp_proto,"tls"))
+		{	
+			
+			if ((ffurl_alloc(&rt->rtsp_hd, tcpname, AVIO_FLAG_READ_WRITE,
+                        &s->interrupt_callback)) < 0) {
+           	 	err = ret;
+	            goto fail;
+	        }
+			AVDictionary *options = NULL;
+			av_dict_set_int(&options, "timeout", rt->stimeout, 0);
+			TLSContext *p = rt->rtsp_hd->priv_data;
+    		TLSShared *c = &p->tls_shared;
+			c->ca_file = rt->ca_file;
+			c->verify = rt->verify;
+
+	        /* complete the connection */
+	        if ((ret = ffurl_connect(rt->rtsp_hd, &options)) < 0) {
+				c->ca_file = NULL;
+				ffurl_closep(&rt->rtsp_hd);
+	          	 err = ret;
+	            goto fail;
+	        }
+			c->ca_file = NULL;
+		}
+		else
+        {
+            if ((ret = ffurl_open_whitelist(&rt->rtsp_hd, tcpname, AVIO_FLAG_READ_WRITE,
+                        &s->interrupt_callback, NULL, s->protocol_whitelist, s->protocol_blacklist, NULL)) < 0) {
+                err = ret;
+                goto fail;
+            }
         }
         rt->rtsp_hd_out = rt->rtsp_hd;
     }

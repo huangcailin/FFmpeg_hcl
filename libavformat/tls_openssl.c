@@ -297,21 +297,31 @@ static int tls_open(URLContext *h, const char *uri, int flags, AVDictionary **op
     }
     SSL_CTX_set_options(p->ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
     if (c->ca_file) {
-        char* pPos = c->ca_file;
-        char* cert_file = c->ca_file;
-        while(1)
+        const char delimiter = ';';
+        const char *ca_start = c->ca_file;
+        const char *ca_end = strchr(c->ca_file, delimiter);
+        if(ca_end)
         {
-            pPos++;
-            if(pPos == 0)
-                break;
-            if(pPos != ';')
-                continue;
-            pPos=0;
-            if (!SSL_CTX_load_verify_locations(p->ctx, cert_file, NULL))
+            while (ca_end != NULL) 
+            {
+                size_t ca_length = ca_end - ca_start;
+                char *ca_buffer = (char*)malloc(ca_length + 1);
+                if (ca_buffer == NULL) {
+                    av_log(NULL, AV_LOG_ERROR,"Memory allocation failed\n");
+                    continue;
+                }
+                memcpy(ca_buffer, ca_start, ca_length);
+                ca_buffer[ca_length] = '\0';
+
+                if (!SSL_CTX_load_verify_locations(p->ctx, ca_buffer, NULL))
                 av_log(h, AV_LOG_ERROR, "SSL_CTX_load_verify_locations %s\n", ERR_error_string(ERR_get_error(), NULL));
-            pPos=pPos+1;
-            cert_file = pPos;
+                free(ca_buffer);
+                ca_start = ca_end + 1;
+                ca_end = strchr(ca_start, delimiter);
+            }
         }
+        if (!SSL_CTX_load_verify_locations(p->ctx, ca_start, NULL))
+            av_log(h, AV_LOG_ERROR, "SSL_CTX_load_verify_locations %s\n", ERR_error_string(ERR_get_error(), NULL));
     }
     if (c->cert_file && !SSL_CTX_use_certificate_chain_file(p->ctx, c->cert_file)) {
         av_log(h, AV_LOG_ERROR, "Unable to load cert file %s: %s\n",
