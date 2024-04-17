@@ -424,6 +424,7 @@ typedef struct RTSPState {
     int verify;
     char *cert_file;
     char *key_file;
+    char *hash_algorithm;
 } RTSPState;
 
 #define RTSP_FLAG_FILTER_SRC  0x1    /**< Filter incoming UDP packets -

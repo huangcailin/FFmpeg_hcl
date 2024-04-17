@@ -1322,9 +1322,9 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
         method = post ? "POST" : "GET";
 
     authstr      = ff_http_auth_create_response(&s->auth_state, auth,
-                                                local_path, method);
+                                                local_path, method, NULL);
     proxyauthstr = ff_http_auth_create_response(&s->proxy_auth_state, proxyauth,
-                                                local_path, method);
+                                                local_path, method, NULL);
 
      if (post && !s->post_data) {
         if (s->send_expect_100 != -1) {
@@ -1968,7 +1968,7 @@ redo:
         return ret;
 
     authstr = ff_http_auth_create_response(&s->proxy_auth_state, auth,
-                                           path, "CONNECT");
+                                           path, "CONNECT", NULL);
     snprintf(s->buffer, sizeof(s->buffer),
              "CONNECT %s HTTP/1.1\r\n"
              "Host: %s\r\n"

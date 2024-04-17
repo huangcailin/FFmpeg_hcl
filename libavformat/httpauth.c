@@ -145,7 +145,7 @@ void CvtHex(char* Bin,unsigned int BinLen,char* Hex,unsigned int HexLen)
 /* Generate a digest reply, according to RFC 2617. */
 static char *make_digest_auth(HTTPAuthState *state, const char *username,
                               const char *password, const char *uri,
-                              const char *method)
+                              const char *method, const char *hash_algorithm)
 {
     DigestParams *digest = &state->digest_params;
     int len;
@@ -174,6 +174,17 @@ static char *make_digest_auth(HTTPAuthState *state, const char *username,
     EVP_MD_CTX *md5ctx = EVP_MD_CTX_new();
     if (!md5ctx)
         return NULL;
+    if(hash_algorithm)
+    {
+        if((strcmp(digest->algorithm, "") == 0 && (strcmp("MD5", hash_algorithm) != 0 || strcmp("md5-sess", hash_algorithm) != 0))
+          || (strcmp(digest->algorithm, hash_algorithm) != 0 
+          && strcmp("SHA256", hash_algorithm) != 0 
+          && strcmp("SHA-256", hash_algorithm) != 0))
+        {
+            av_log(NULL, AV_LOG_ERROR, "Config hash_algorithm is %s,but algorithm is %s\n", hash_algorithm,digest->algorithm);
+            return NULL;
+        }
+    }
     if(strcmp(digest->algorithm, "md5-sess") == 0
      || strcmp(digest->algorithm, "MD5") == 0
      || strcmp(digest->algorithm, "") == 0)
@@ -277,7 +288,7 @@ static char *make_digest_auth(HTTPAuthState *state, const char *username,
 }
 
 char *ff_http_auth_create_response(HTTPAuthState *state, const char *auth,
-                                   const char *path, const char *method)
+                                   const char *path, const char *method, const char *hash_algorithm)
 {
     char *authstr = NULL;
     /* Clear the stale flag, we assume the auth is ok now. It is reset
@@ -315,7 +326,7 @@ char *ff_http_auth_create_response(HTTPAuthState *state, const char *auth,
 
         if ((password = strchr(username, ':'))) {
             *password++ = 0;
-            authstr = make_digest_auth(state, username, password, path, method);
+            authstr = make_digest_auth(state, username, password, path, method, hash_algorithm);
         }
         av_free(username);
     }

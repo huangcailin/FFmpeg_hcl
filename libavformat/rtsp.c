@@ -108,6 +108,7 @@ const AVOption ff_rtsp_options[] = {
 	{ "tls_verify", "Verify the peer certificate", OFFSET(verify), AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1, DEC|ENC },
 	{ "cert_file", "Certificate file", OFFSET(cert_file), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC },
     { "key_file", "Private key file", OFFSET(key_file), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC },
+    { "hash_algorithm", "Response hash algorithm, SHA256 or MD5", OFFSET(hash_algorithm), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC },
     { NULL },
 };
 
@@ -1374,7 +1375,7 @@ static int rtsp_send_cmd_with_content_async(AVFormatContext *s,
     }
     if (rt->auth[0]) {
         char *str = ff_http_auth_create_response(&rt->auth_state,
-                                                 rt->auth, url, method);
+                                                 rt->auth, url, method, rt->hash_algorithm);
         if (str)
             av_strlcat(buf, str, sizeof(buf));
         av_free(str);

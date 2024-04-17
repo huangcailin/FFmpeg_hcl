@@ -74,6 +74,6 @@ typedef struct HTTPAuthState {
 void ff_http_auth_handle_header(HTTPAuthState *state, const char *key,
                                 const char *value);
 char *ff_http_auth_create_response(HTTPAuthState *state, const char *auth,
-                                   const char *path, const char *method);
+                                   const char *path, const char *method, const char *hash_algorithm);
 void CvtHex(char* Bin,unsigned int BinLen,char* Hex,unsigned int HexLen);
 #endif /* AVFORMAT_HTTPAUTH_H */
