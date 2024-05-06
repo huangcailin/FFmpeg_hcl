@@ -176,13 +176,27 @@ static char *make_digest_auth(HTTPAuthState *state, const char *username,
         return NULL;
     if(hash_algorithm)
     {
-        if((strcmp(digest->algorithm, "") == 0 && (strcmp("MD5", hash_algorithm) != 0 || strcmp("md5-sess", hash_algorithm) != 0))
-          || (strcmp(digest->algorithm, hash_algorithm) != 0 
-          && strcmp("SHA256", hash_algorithm) != 0 
-          && strcmp("SHA-256", hash_algorithm) != 0))
+        if(strcmp("SHA256", hash_algorithm) != 0 && strcmp("SHA-256", hash_algorithm) != 0
+        && strcmp("MD5", hash_algorithm) != 0 && strcmp("md5-sess", hash_algorithm) != 0)
         {
-            av_log(NULL, AV_LOG_ERROR, "Config hash_algorithm is %s,but algorithm is %s\n", hash_algorithm,digest->algorithm);
+            av_log(NULL, AV_LOG_ERROR, "Config hash_algorithm is %s,'SHA256' 'SHA-256' 'MD5' 'md5-sess' is need\n", hash_algorithm);
             return NULL;
+        }
+        if(strcmp(digest->algorithm, "") == 0)
+        {
+            if(strcmp("MD5", hash_algorithm) != 0 && strcmp("md5-sess", hash_algorithm) != 0)
+            {
+                av_log(NULL, AV_LOG_ERROR, "Config hash_algorithm is %s,but algorithm is %s\n", hash_algorithm,digest->algorithm);
+                return NULL;
+            }
+        }
+        else
+        {
+            if(strcmp(digest->algorithm, hash_algorithm) != 0)
+            {
+                av_log(NULL, AV_LOG_ERROR, "Config hash_algorithm is %s,but algorithm is %s\n", hash_algorithm,digest->algorithm);
+                return NULL;
+            }
         }
     }
     if(strcmp(digest->algorithm, "md5-sess") == 0
